@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Analítico de RMA - Inversores Fotovoltaicos</title>
+    <title>Dashboard Analítico de RMA - Inversores Fotovoltaicos (Corrigido)</title>
     <!-- SheetJS para leitura de Excel -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
     <style>
@@ -65,6 +65,30 @@
             cursor: pointer;
             text-decoration: underline;
         }
+        
+        /* Date Inputs */
+        .date-filter-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .date-input-group {
+            display: flex;
+            flex-direction: column;
+        }
+        .date-input-group label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-bottom: 2px;
+        }
+        .date-input-group input {
+            padding: 6px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-family: inherit;
+            color: var(--text-main);
+        }
+
         .checkbox-list {
             max-height: 250px;
             overflow-y: auto;
@@ -340,6 +364,21 @@
 
         <h3 style="margin-top: 25px; margin-bottom: 15px; color: #111827;">Filtros</h3>
         
+        <!-- Novo Filtro de Data -->
+        <div class="filter-group">
+            <div class="filter-header">Período de RMA</div>
+            <div class="date-filter-container">
+                <div class="date-input-group">
+                    <label>De:</label>
+                    <input type="date" id="start-date" onchange="handleDateChange()">
+                </div>
+                <div class="date-input-group">
+                    <label>Até:</label>
+                    <input type="date" id="end-date" onchange="handleDateChange()">
+                </div>
+            </div>
+        </div>
+
         <div class="filter-group">
             <div class="filter-header">
                 Fabricantes
@@ -413,7 +452,7 @@
         <!-- Charts -->
         <section class="chart-section">
             <div class="chart-title">1. Taxa de RMA por Modelo (%)</div>
-            <div class="chart-subtitle">Ordenado pela taxa de falha (Percentual de RMA sobre Vendas)</div>
+            <div class="chart-subtitle">Ordenado do maior percentual de falha para o menor</div>
             <div class="chart-container" id="chart-models"></div>
         </section>
 
@@ -428,6 +467,13 @@
             <div class="chart-subtitle">Clique no estado para filtrar os dados regionais</div>
             <div class="chart-container" id="chart-regions"></div>
         </section>
+
+        <!-- NOVO GRÁFICO 4 -->
+        <section class="chart-section">
+            <div class="chart-title">4. Tempo Médio até Falha (MTTF Estimado)</div>
+            <div class="chart-subtitle">Tempo decorrido entre a Venda e a abertura do RMA (Média por Modelo)</div>
+            <div class="chart-container" id="chart-mttf"></div>
+        </section>
     </main>
 </div>
 
@@ -435,76 +481,24 @@
     // ==========================================
     // 1. CONFIGURAÇÃO E DADOS
     // ==========================================
-    const SAMPLE_DB = {
-        vendasRMA: [
-            { manufacturer: 'SOLPLANET', product: 'INVERSOR SOLPLANET ASW40K-LT-G3', rma: 1, sales: 3 },
-            { manufacturer: 'SOLPLANET', product: 'INVERSOR SOLPLANET ASW50K-LT-G2', rma: 2, sales: 6 },
-            { manufacturer: 'SOFAR', product: 'INVERSOR SOFAR 4KTLM-G3', rma: 2, sales: 6 },
-            { manufacturer: 'SOFAR', product: 'INVERSOR SOFAR 75KTLX-G3', rma: 6, sales: 22 },
-            { manufacturer: 'SOLIS', product: 'INVERSOR SOLIS S5-GC50K (10 ANOS DE GARANTIA)', rma: 1, sales: 4 },
-            { manufacturer: 'SOLPLANET', product: 'INVERSOR SOLPLANET ASW25K-LT-G2 PRO', rma: 8, sales: 37 },
-            { manufacturer: 'SOLPLANET', product: 'INVERSOR SOLPLANET ASW20K-UT-G3 220V', rma: 3, sales: 17 },
-            { manufacturer: 'SOLPLANET', product: 'INVERSOR SOLPLANET ASW7300-S C/ AFCI', rma: 3, sales: 816 },
-            { manufacturer: 'SOLIS', product: 'INVERSOR SOLIS S6-GR1P5K-S C/ AFCI', rma: 3, sales: 871 },
-            { manufacturer: 'SOLPLANET', product: 'INVERSOR SOLPLANET ASW33K-LT-G3 C/ AFCI', rma: 1, sales: 318 },
-            { manufacturer: 'SOLPLANET', product: 'INVERSOR SOLPLANET ASW17K-LT-G2 PRO C/ AFCI', rma: 2, sales: 671 },
-            { manufacturer: 'TSUNESS', product: 'INVERSOR TSUNESS TSOL-MX3000D', rma: 5, sales: 1745 },
-            { manufacturer: 'SOLPLANET', product: 'INVERSOR SOLPLANET ASW3000-S-G2', rma: 7, sales: 2511 },
-            { manufacturer: 'AUXSOL', product: 'INVERSOR AUXSOL ASN-10SL C/ AFCI', rma: 3, sales: 675 },
-            { manufacturer: 'AUXSOL', product: 'INVERSOR AUXSOL ASN-3SL C/ AFCI', rma: 1, sales: 629 },
-            { manufacturer: 'AUXSOL', product: 'INVERSOR AUXSOL ASN-6SL-G2 C/ AFCI', rma: 2, sales: 1243 },
-            { manufacturer: 'AUXSOL', product: 'INVERSOR AUXSOL ASN-7.5SL C/ AFCI', rma: 7, sales: 733 },
-            { manufacturer: 'DEYE', product: 'INVERSOR DEYE SUN-5K-G03', rma: 15, sales: 800 },
-            { manufacturer: 'DEYE', product: 'INVERSOR DEYE SUN-8K-G03', rma: 12, sales: 600 },
-            { manufacturer: 'DEYE', product: 'MICRO INVERSOR DEYE SUN-2000G3', rma: 5, sales: 400 }
-        ],
-        defeitos: [
-            { manufacturer: 'AUXSOL', product: 'INVERSOR AUXSOL ASN-10SL C/ AFCI', defect: '[INV] Inversor não liga', count: 3 },
-            { manufacturer: 'AUXSOL', product: 'INVERSOR AUXSOL ASN-3SL C/ AFCI', defect: '[INV] Inversor não liga', count: 1 },
-            { manufacturer: 'AUXSOL', product: 'INVERSOR AUXSOL ASN-6SL-G2 C/ AFCI', defect: '[INV] Falha comunicação', count: 2 },
-            { manufacturer: 'AUXSOL', product: 'INVERSOR AUXSOL ASN-7.5SL C/ AFCI', defect: '[INV] Falha na MPPT', count: 4 },
-            { manufacturer: 'AUXSOL', product: 'INVERSOR AUXSOL ASN-7.5SL C/ AFCI', defect: '[INV] Inversor queimado/curto circuito interno', count: 3 },
-            { manufacturer: 'TSUNESS', product: 'INVERSOR TSUNESS TSOL-MX2250', defect: '[INV] Falha na MPPT', count: 4 },
-            { manufacturer: 'TSUNESS', product: 'INVERSOR TSUNESS TSOL-MX2250', defect: '[INV] Falha no circuito interno', count: 4 },
-            { manufacturer: 'TSUNESS', product: 'INVERSOR TSUNESS TSOL-MX2250', defect: '[MIC] Falha De Conexão Wifi', count: 4 },
-            { manufacturer: 'TSUNESS', product: 'INVERSOR TSUNESS TSOL-MX2250', defect: '[INV] Problema Conector CA', count: 3 },
-            { manufacturer: 'TSUNESS', product: 'INVERSOR TSUNESS TSOL-MX2250', defect: '[MIC] Falha CA', count: 3 },
-            { manufacturer: 'TSUNESS', product: 'INVERSOR TSUNESS TSOL-MX2250', defect: '[INV] Temperatura interna alta', count: 2 },
-            { manufacturer: 'DEYE', product: 'INVERSOR DEYE SUN-5K-G03', defect: 'Falha no Display', count: 15 },
-            { manufacturer: 'DEYE', product: 'INVERSOR DEYE SUN-5K-G03', defect: 'Erro de Grid', count: 20 }
-        ],
-        regional: [
-            { manufacturer: 'AUXSOL', product: 'INVERSOR AUXSOL ASN-6SL-G2 C/ AFCI', state: 'GO', rma: 1, sales: 90 },
-            { manufacturer: 'DEYE', product: 'INVERSOR DEYE SUN-5K-G03', state: 'GO', rma: 20, sales: 150 },
-            { manufacturer: 'TSUNESS', product: 'INVERSOR TSUNESS TSOL-MP3000', state: 'GO', rma: 24, sales: 150 },
-            { manufacturer: 'TSUNESS', product: 'INVERSOR TSUNESS TSOL-MP3000', state: 'RJ', rma: 11, sales: 125 },
-            { manufacturer: 'TSUNESS', product: 'INVERSOR TSUNESS TSOL-MP3000', state: 'RN', rma: 9, sales: 118 },
-            { manufacturer: 'TSUNESS', product: 'INVERSOR TSUNESS TSOL-MP3000', state: 'PE', rma: 2, sales: 101 },
-            { manufacturer: 'TSUNESS', product: 'INVERSOR TSUNESS TSOL-MP3000', state: 'SC', rma: 2, sales: 123 },
-            { manufacturer: 'AUXSOL', product: 'INVERSOR AUXSOL ASN-10SL C/ AFCI', state: 'MA', rma: 2, sales: 32 },
-            { manufacturer: 'TSUNESS', product: 'INVERSOR TSUNESS TSOL-MP3000', state: 'RS', rma: 2, sales: 61 },
-            { manufacturer: 'TSUNESS', product: 'INVERSOR TSUNESS TSOL-MP3000', state: 'PR', rma: 2, sales: 32 },
-            { manufacturer: 'AUXSOL', product: 'INVERSOR AUXSOL ASN-6SL-G2 C/ AFCI', state: 'BA', rma: 1, sales: 67 },
-            { manufacturer: 'AUXSOL', product: 'INVERSOR AUXSOL ASN-7.5SL C/ AFCI', state: 'BA', rma: 1, sales: 27 },
-            { manufacturer: 'AUXSOL', product: 'INVERSOR AUXSOL ASN-10SL C/ AFCI', state: 'PA', rma: 1, sales: 75 },
-            { manufacturer: 'TSUNESS', product: 'INVERSOR TSUNESS TSOL-MP3000', state: 'PA', rma: 1, sales: 79 },
-            { manufacturer: 'DEYE', product: 'INVERSOR DEYE SUN-5K-G03', state: 'SP', rma: 1, sales: 200 },
-            { manufacturer: 'AUXSOL', product: 'INVERSOR AUXSOL ASN-3SL C/ AFCI', state: 'MT', rma: 1, sales: 29 }
-        ]
+    // Dados de amostra removidos para evitar confusão, agora inicia vazio para forçar carregamento
+    let DB = {
+        vendasRMA: [],
+        defeitos: [],
+        regional: []
     };
-
-    let DB = JSON.parse(JSON.stringify(SAMPLE_DB));
 
     const state = {
         filters: { manufacturers: [], models: [] },
+        dateRange: { start: null, end: null }, 
         activeSelection: { type: null, value: null }, 
         loadedFromStorage: false
     };
 
-    const STORAGE_KEY = 'rma_dashboard_data_v18'; 
+    const STORAGE_KEY = 'rma_dashboard_data_v27'; 
 
     // ==========================================
-    // 2. FUNÇÕES DE FILTRO INTERATIVO (DRILL-DOWN)
+    // 2. FUNÇÕES DE FILTRO INTERATIVO
     // ==========================================
 
     function handleChartClick(type, value) {
@@ -520,6 +514,16 @@
     function clearActiveSelection() {
         state.activeSelection = { type: null, value: null };
         renderActiveFilters();
+        updateDashboard();
+    }
+
+    function handleDateChange() {
+        const startInput = document.getElementById('start-date').value;
+        const endInput = document.getElementById('end-date').value;
+        
+        state.dateRange.start = startInput ? new Date(startInput) : null;
+        state.dateRange.end = endInput ? new Date(endInput) : null;
+        
         updateDashboard();
     }
 
@@ -540,17 +544,40 @@
     }
 
     // ==========================================
-    // 3. PROCESSAMENTO DE DADOS E FILTRAGEM
+    // 3. PROCESSAMENTO DE DADOS (CORREÇÃO DE ERRO)
     // ==========================================
 
     function filterData() {
-        const { manufacturers, models } = state.filters;
+        // SAFETY CHECK: Garante que os filtros existam antes de filtrar
+        const manuf = state.filters?.manufacturers || [];
+        const mods = state.filters?.models || [];
+        
+        const { dateRange } = state; 
         const { type: selType, value: selValue } = state.activeSelection;
 
-        let filteredVendas = DB.vendasRMA.filter(row => manufacturers.includes(row.manufacturer) && models.includes(row.product));
-        let filteredDefeitos = DB.defeitos.filter(row => manufacturers.includes(row.manufacturer) && models.includes(row.product));
-        let filteredRegional = DB.regional.filter(row => manufacturers.includes(row.manufacturer) && models.includes(row.product));
+        // 1. Filtro Básico (Checkboxes)
+        let filteredVendas = DB.vendasRMA.filter(row => {
+            if (!manuf.includes(row.manufacturer) || !mods.includes(row.product)) return false;
+            
+            if (dateRange.start || dateRange.end) {
+                if (!row.dateRMA) return false; 
+                const rmaTime = row.dateRMA.getTime();
+                if (dateRange.start && rmaTime < dateRange.start.getTime()) return false;
+                if (dateRange.end && rmaTime > dateRange.end.getTime()) return false;
+            }
+            return true;
+        });
 
+        let filteredDefeitos = DB.defeitos.filter(row => manuf.includes(row.manufacturer) && mods.includes(row.product));
+        let filteredRegional = DB.regional.filter(row => manuf.includes(row.manufacturer) && mods.includes(row.product));
+
+        if (dateRange.start || dateRange.end) {
+            const activeModels = [...new Set(filteredVendas.map(v => v.product))];
+            filteredDefeitos = filteredDefeitos.filter(d => activeModels.includes(d.product));
+            filteredRegional = filteredRegional.filter(r => activeModels.includes(r.product));
+        }
+
+        // 2. Filtro Interativo (Cross-filtering)
         if (selType === 'state') {
             filteredRegional = filteredRegional.filter(r => r.state === selValue);
             const productsInState = [...new Set(filteredRegional.map(r => r.product))];
@@ -561,7 +588,9 @@
                     manufacturer: r.manufacturer,
                     product: r.product,
                     rma: r.rma,
-                    sales: r.sales || 0 
+                    sales: r.sales || 0,
+                    dateSale: r.dateSale,
+                    dateRMA: r.dateRMA
                 });
             });
             filteredVendas = vendasSimuladas;
@@ -620,7 +649,7 @@
     }
 
     function updateCharts(data) {
-        // Chart 1: Modelos (Agora Ordenado por Taxa de Falha)
+        // Chart 1: Modelos (Taxa %)
         const modelMap = {};
         data.vendas.forEach(item => {
             if(!modelMap[item.product]) {
@@ -635,28 +664,19 @@
             modelMap[item.product].sales += (item.sales || 0);
         });
 
-        // Converte para array e calcula a taxa
-        const modelsArray = Object.values(modelMap).map(item => {
-            const rate = item.sales > 0 ? (item.rma / item.sales * 100) : 0;
-            return { ...item, rate };
-        });
+        const sortedModels = Object.values(modelMap)
+            .map(item => ({ ...item, rate: item.sales > 0 ? (item.rma / item.sales * 100) : 0 }))
+            .sort((a, b) => b.rate - a.rate);
 
-        // Ordena pela taxa (decrescente)
-        const sortedModels = modelsArray.sort((a, b) => b.rate - a.rate);
-
-        const chartModelsData = sortedModels.map(item => {
-            const percent = item.rate.toFixed(2);
-            return {
-                id: item.label,
-                type: 'model',
-                label: item.label,
-                subLabel: item.subLabel,
-                value: item.rate, // Valor agora é a taxa para definir o tamanho da barra
-                displayValue: `${percent}% (${item.rma} RMAs)`, // Rótulo principal é a porcentagem
-                salesValue: `Vendas: ${item.sales.toLocaleString('pt-BR')}`
-            };
-        });
-        renderBarChart('chart-models', chartModelsData, true);
+        renderBarChart('chart-models', sortedModels.map(item => ({
+            id: item.label,
+            type: 'model',
+            label: item.label,
+            subLabel: item.subLabel,
+            value: item.rate,
+            displayValue: `${item.rate.toFixed(2)}% (${item.rma} RMAs)`,
+            salesValue: `Vendas: ${item.sales.toLocaleString('pt-BR')}`
+        })), true);
 
         // Chart 2: Defeitos
         const defectMap = {};
@@ -667,16 +687,13 @@
             .sort((a, b) => b.count - a.count)
             .slice(0, 10);
 
-        renderBarChart('chart-defects', sortedDefects.map(item => {
-            const share = totalDefectsCount > 0 ? (item.count / totalDefectsCount * 100).toFixed(2) : 0;
-            return { 
-                id: item.name,
-                type: 'defect',
-                label: item.name, 
-                value: item.count, 
-                displayValue: `${item.count} (${share}%)` 
-            };
-        }));
+        renderBarChart('chart-defects', sortedDefects.map(item => ({ 
+            id: item.name,
+            type: 'defect',
+            label: item.name, 
+            value: item.count, 
+            displayValue: `${item.count} (${totalDefectsCount > 0 ? (item.count/totalDefectsCount*100).toFixed(2) : 0}%)` 
+        })));
 
         // Chart 3: Regional
         const stateMap = {};
@@ -686,23 +703,68 @@
             .map(key => ({ name: key, count: stateMap[key] }))
             .sort((a, b) => b.count - a.count);
 
-        renderBarChart('chart-regions', sortedStates.map(item => {
-            const share = totalRegionalFiltered > 0 ? (item.count / totalRegionalFiltered * 100).toFixed(2) : 0;
-            return { 
-                id: item.name,
-                type: 'state',
-                label: item.name, 
-                value: item.count, 
-                displayValue: `${item.count} RMAs (${share}%)` 
-            };
-        }));
+        renderBarChart('chart-regions', sortedStates.map(item => ({ 
+            id: item.name,
+            type: 'state',
+            label: item.name, 
+            value: item.count, 
+            displayValue: `${item.count} RMAs (${totalRegionalFiltered > 0 ? (item.count/totalRegionalFiltered*100).toFixed(2) : 0}%)` 
+        })));
+
+        // NOVO: Chart 4: Tempo Médio até Falha
+        const timeMap = {};
+        data.vendas.forEach(item => {
+            if (item.dateSale && item.dateRMA) {
+                const start = new Date(item.dateSale);
+                const end = new Date(item.dateRMA);
+                if (!isNaN(start) && !isNaN(end) && end >= start) {
+                    const diffTime = Math.abs(end - start);
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+                    
+                    if(!timeMap[item.product]) {
+                        timeMap[item.product] = { totalDays: 0, count: 0, label: item.product, subLabel: item.manufacturer };
+                    }
+                    timeMap[item.product].totalDays += diffDays;
+                    timeMap[item.product].count += 1;
+                }
+            }
+        });
+
+        const timeModels = Object.values(timeMap)
+            .map(item => ({ ...item, avgDays: Math.round(item.totalDays / item.count) }))
+            .sort((a, b) => a.avgDays - b.avgDays);
+
+        const formatDuration = (days) => {
+            if (days < 0) return "0 dias";
+            const years = Math.floor(days / 365);
+            const remainderYear = days % 365;
+            const months = Math.floor(remainderYear / 30);
+            const remainingDays = remainderYear % 30;
+
+            let parts = [];
+            if (years > 0) parts.push(`${years} ano${years > 1 ? 's' : ''}`);
+            if (months > 0) parts.push(`${months} m${months > 1 ? 'eses' : 'ês'}`);
+            if (remainingDays > 0) parts.push(`${remainingDays} dia${remainingDays > 1 ? 's' : ''}`);
+            
+            return parts.length > 0 ? parts.join(', ') : "0 dias";
+        };
+
+        renderBarChart('chart-mttf', timeModels.map(item => ({
+            id: item.label,
+            type: 'model',
+            label: item.label,
+            subLabel: item.subLabel,
+            value: item.avgDays,
+            displayValue: formatDuration(item.avgDays),
+            salesValue: `Amostra: ${item.count} un.`
+        })), true);
     }
 
     function renderBarChart(containerId, data, detailed = false) {
         const container = document.getElementById(containerId);
         container.innerHTML = '';
         if (data.length === 0) {
-            container.innerHTML = '<div class="empty-state">Sem dados para exibir.</div>';
+            container.innerHTML = '<div class="empty-state">Sem dados disponíveis.</div>';
             return;
         }
         const maxValue = Math.max(...data.map(d => d.value));
@@ -846,6 +908,20 @@
         return newRow;
     }
 
+    function parseExcelDate(value) {
+        if (!value) return null;
+        if (typeof value === 'number') {
+            return new Date(Math.round((value - 25569)*86400*1000));
+        }
+        if (typeof value === 'string') {
+            const d = new Date(value);
+            if(!isNaN(d)) return d;
+            const parts = value.split('/');
+            if(parts.length === 3) return new Date(parts[2], parts[1]-1, parts[0]);
+        }
+        return null;
+    }
+
     async function handleFileUpload(event) {
         const files = event.target.files;
         if (!files || files.length === 0) return;
@@ -861,7 +937,7 @@
 
             reader.onload = function(e) {
                 const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, {type: 'array'});
+                const workbook = XLSX.read(data, {type: 'array', cellDates: true});
                 const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
                 
                 const aoa = XLSX.utils.sheet_to_json(firstSheet, {header: 1, defval: ''});
@@ -909,12 +985,22 @@
     function mapVendas(data) {
         return data
             .filter(r => r['fabricante'] && r['produto']) 
-            .map(row => ({
-                manufacturer: row['fabricante'],
-                product: row['produto'],
-                rma: parseInt(row['quant. de sac'] || row['quant de sac']) || 0,
-                sales: parseInt(row['total vendido']) || 0
-            }));
+            .map(row => {
+                let dSale = row['data venda'] || row['dt venda'] || row['data da venda'] || row['date sale'] || null;
+                let dRMA = row['data rma'] || row['data abertura'] || row['dt defeito'] || row['data abertura rma'] || null;
+
+                let rmaVal = parseInt(row['quant. de sac'] || row['quant de sac']) || 0;
+                if(rmaVal === 0 && dRMA) rmaVal = 1;
+
+                return {
+                    manufacturer: row['fabricante'],
+                    product: row['produto'],
+                    rma: rmaVal,
+                    sales: parseInt(row['total vendido']) || 0,
+                    dateSale: dSale ? parseExcelDate(dSale) : null,
+                    dateRMA: dRMA ? parseExcelDate(dRMA) : null
+                };
+            });
     }
 
     function mapDefeitos(data) {
@@ -959,7 +1045,7 @@
     }
 
     // ==========================================
-    // 7. RESET E INICIALIZAÇÃO (CORRIGIDO)
+    // 7. RESET E INICIALIZAÇÃO
     // ==========================================
 
     function saveToStorage(data) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) {} }
@@ -988,9 +1074,8 @@
     function init() {
         if (!state.loadedFromStorage && DB.vendasRMA.length === 0) {
             const loaded = loadFromStorage();
-            if(!loaded) {
-                DB = JSON.parse(JSON.stringify(SAMPLE_DB));
-            }
+            // Removido o carregamento de SAMPLE_DB
+            // O DB inicia vazio até o upload
             state.loadedFromStorage = true;
         }
 
