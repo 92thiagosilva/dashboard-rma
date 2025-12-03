@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Analítico de RMA - Inversores Fotovoltaicos (Corrigido)</title>
+    <title>Dashboard Analítico de RMA - Inversores Fotovoltaicos (Final)</title>
     <!-- SheetJS para leitura de Excel -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
     <style>
@@ -351,7 +351,8 @@
         <div class="upload-section" onclick="document.getElementById('fileInput').click()">
             <div>📂 <strong>Carregar Arquivos Excel</strong></div>
             <div style="font-size:0.75rem; margin:5px 0; color: #666;">
-                Carregue seus arquivos:<br>
+                Colunas de data necessárias: "Data Venda" e "Data RMA"<br>
+                Arquivos sugeridos:<br>
                 - vendas.xlsx<br>
                 - defeitos.xlsx<br>
                 - regional.xlsx
@@ -481,7 +482,7 @@
     // ==========================================
     // 1. CONFIGURAÇÃO E DADOS
     // ==========================================
-    // Dados de amostra removidos para evitar confusão, agora inicia vazio para forçar carregamento
+    // Inicia VAZIO conforme solicitado para "limpar dados de exemplo"
     let DB = {
         vendasRMA: [],
         defeitos: [],
@@ -495,7 +496,7 @@
         loadedFromStorage: false
     };
 
-    const STORAGE_KEY = 'rma_dashboard_data_v27'; 
+    const STORAGE_KEY = 'rma_dashboard_data_v28'; 
 
     // ==========================================
     // 2. FUNÇÕES DE FILTRO INTERATIVO
@@ -544,23 +545,25 @@
     }
 
     // ==========================================
-    // 3. PROCESSAMENTO DE DADOS (CORREÇÃO DE ERRO)
+    // 3. PROCESSAMENTO DE DADOS (ROBUSTO)
     // ==========================================
 
     function filterData() {
-        // SAFETY CHECK: Garante que os filtros existam antes de filtrar
-        const manuf = state.filters?.manufacturers || [];
-        const mods = state.filters?.models || [];
+        // Correção: Garante que os filtros existam antes de tentar acessar
+        const manuf = state.filters?.manufacturers || []; 
+        const mods = state.filters?.models || []; 
         
         const { dateRange } = state; 
         const { type: selType, value: selValue } = state.activeSelection;
 
         // 1. Filtro Básico (Checkboxes)
         let filteredVendas = DB.vendasRMA.filter(row => {
+            // Proteção contra undefined
             if (!manuf.includes(row.manufacturer) || !mods.includes(row.product)) return false;
             
+            // Filtro de Data (Data RMA)
             if (dateRange.start || dateRange.end) {
-                if (!row.dateRMA) return false; 
+                if (!row.dateRMA) return false; // Se não tem data, sai
                 const rmaTime = row.dateRMA.getTime();
                 if (dateRange.start && rmaTime < dateRange.start.getTime()) return false;
                 if (dateRange.end && rmaTime > dateRange.end.getTime()) return false;
@@ -571,6 +574,7 @@
         let filteredDefeitos = DB.defeitos.filter(row => manuf.includes(row.manufacturer) && mods.includes(row.product));
         let filteredRegional = DB.regional.filter(row => manuf.includes(row.manufacturer) && mods.includes(row.product));
 
+        // Se houver filtro de data, restringe defeitos e regional apenas aos modelos que sobraram
         if (dateRange.start || dateRange.end) {
             const activeModels = [...new Set(filteredVendas.map(v => v.product))];
             filteredDefeitos = filteredDefeitos.filter(d => activeModels.includes(d.product));
@@ -1045,7 +1049,7 @@
     }
 
     // ==========================================
-    // 7. RESET E INICIALIZAÇÃO
+    // 7. RESET E INICIALIZAÇÃO (CORRIGIDO)
     // ==========================================
 
     function saveToStorage(data) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch (e) {} }
@@ -1072,10 +1076,8 @@
     }
 
     function init() {
-        if (!state.loadedFromStorage && DB.vendasRMA.length === 0) {
-            const loaded = loadFromStorage();
-            // Removido o carregamento de SAMPLE_DB
-            // O DB inicia vazio até o upload
+        if (!state.loadedFromStorage) {
+            loadFromStorage();
             state.loadedFromStorage = true;
         }
 
