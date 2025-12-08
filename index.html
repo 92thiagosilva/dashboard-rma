@@ -96,12 +96,32 @@
             text-transform: uppercase; 
             letter-spacing: 0.05em; 
             color: var(--text-sidebar-muted); 
-            margin-bottom: 12px; 
-            margin-top: 4px;
+            margin: 0; /* Reset margin for flex layout */
         }
 
         .control-group { display: flex; flex-direction: column; gap: 10px; }
         
+        /* New Header Row for Filter Controls */
+        .filter-header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 4px;
+        }
+        
+        .btn-text-action {
+            background: none;
+            border: none;
+            color: var(--primary);
+            cursor: pointer;
+            font-size: 0.7rem;
+            padding: 0 2px;
+            font-family: inherit;
+            transition: color 0.2s;
+        }
+        .btn-text-action:hover { color: white; text-decoration: underline; }
+        .divider { color: var(--text-sidebar-muted); font-size: 0.7rem; margin: 0 2px; }
+
         /* Custom File Input */
         .file-drop-zone {
             border: 2px dashed rgba(255,255,255,0.2);
@@ -130,7 +150,7 @@
         .file-drop-text { font-size: 0.8rem; color: var(--text-sidebar-muted); }
 
         /* Inputs & Buttons Sidebar */
-        input[type="date"] {
+        input[type="date"], input[type="text"].search-input {
             background: rgba(255,255,255,0.05);
             border: 1px solid rgba(255,255,255,0.1);
             color: white;
@@ -138,10 +158,19 @@
             border-radius: var(--radius);
             width: 100%;
             font-family: inherit;
+            font-size: 0.85rem;
+        }
+        input[type="text"].search-input::placeholder {
+            color: rgba(255,255,255,0.3);
         }
         input[type="date"]::-webkit-calendar-picker-indicator {
             filter: invert(1);
             cursor: pointer;
+        }
+        
+        /* Focus state for inputs */
+        input:focus {
+            border-color: var(--primary);
         }
 
         .checkbox-list {
@@ -166,6 +195,9 @@
         .checkbox-item:hover { background: rgba(255,255,255,0.05); color: white; }
         .checkbox-item input { margin-right: 10px; accent-color: var(--primary); }
         .checkbox-item input[type="radio"] { accent-color: var(--primary); }
+        
+        /* Utility class to hide filtered items */
+        .hidden-item { display: none !important; }
 
         /* Buttons */
         .btn-ghost {
@@ -497,7 +529,14 @@
             </div>
 
             <div class="control-group">
-                <h3>Fabricante</h3>
+                <div class="filter-header-row">
+                    <h3>Fabricante</h3>
+                    <div>
+                        <button class="btn-text-action" onclick="app.toggleGroup('manuf', true)">Todos</button>
+                        <span class="divider">/</span>
+                        <button class="btn-text-action" onclick="app.toggleGroup('manuf', false)">Limpar</button>
+                    </div>
+                </div>
                 <div class="checkbox-list" id="filter-manufacturers">
                     <!-- Dinamicamente preenchido -->
                     <div style="padding:10px; text-align:center; color: var(--text-sidebar-muted); font-size:0.8rem;">Carregue arquivos para filtrar</div>
@@ -505,7 +544,16 @@
             </div>
 
             <div class="control-group">
-                <h3>Modelo</h3>
+                <div class="filter-header-row">
+                    <h3>Modelo</h3>
+                    <div>
+                        <button class="btn-text-action" onclick="app.toggleGroup('model', true)">Todos</button>
+                        <span class="divider">/</span>
+                        <button class="btn-text-action" onclick="app.toggleGroup('model', false)">Limpar</button>
+                    </div>
+                </div>
+                <!-- Novo Campo de Busca -->
+                <input type="text" id="modelSearch" class="search-input" placeholder="Buscar modelo..." oninput="app.filterModelsUI()">
                 <div class="checkbox-list" id="filter-models">
                     <div style="padding:10px; text-align:center; color: var(--text-sidebar-muted); font-size:0.8rem;">---</div>
                 </div>
@@ -607,7 +655,7 @@
     <script>
         const app = {
             data: { sales: [], rmas: [], mttf: [] },
-            mapping: { productToManuf: {}, productToStock: {} }, // ADICIONADO: productToStock
+            mapping: { productToManuf: {}, productToStock: {} }, 
             filters: { manufacturers: new Set(), models: new Set(), dateStart: null, dateEnd: null, crossFilter: null, stockStatus: 'all' },
 
             init: function() {
@@ -654,7 +702,7 @@
             processFiles: function(results) {
                 this.data = { sales: [], rmas: [], mttf: [] };
                 this.mapping.productToManuf = {};
-                this.mapping.productToStock = {}; // Reiniciar mapa
+                this.mapping.productToStock = {}; 
 
                 results.forEach(res => {
                     const keys = Object.keys(res.data[0] || {}).map(k => k.trim());
@@ -676,7 +724,6 @@
                 }
 
                 // Cruzar informações e preencher mapa de estoque
-                // AGORA INCLUINDO SALES NO LOOP DE ESTOQUE
                 const allRows = [...this.data.sales, ...this.data.rmas];
                 allRows.forEach(row => {
                     if (row["Produto"]) {
@@ -722,11 +769,67 @@
 
                 const modelContainer = document.getElementById('filter-models');
                 modelContainer.innerHTML = '';
+                // Ordenar modelos alfabeticamente
                 Array.from(models).sort().forEach(m => {
-                    modelContainer.innerHTML += `<label class="checkbox-item"><input type="checkbox" class="filter-checkbox" data-group="model" value="${m}">${m}</label>`;
+                    // Adiciona data-manuf para filtragem
+                    const manuf = this.mapping.productToManuf[m] || "";
+                    modelContainer.innerHTML += `
+                        <label class="checkbox-item model-checkbox-wrapper" data-model="${m.toLowerCase()}" data-manuf="${manuf}">
+                            <input type="checkbox" class="filter-checkbox" data-group="model" value="${m}">${m}
+                        </label>`;
                 });
 
-                document.querySelectorAll('.filter-checkbox').forEach(cb => cb.addEventListener('change', () => this.render()));
+                document.querySelectorAll('.filter-checkbox').forEach(cb => cb.addEventListener('change', () => {
+                    if(cb.dataset.group === 'manuf') this.filterModelsUI(); // Atualiza UI de modelos se fabricante mudar
+                    this.render();
+                }));
+            },
+
+            // --- Nova Função: Toggle de Grupo (Todos/Limpar) ---
+            toggleGroup: function(group, state) {
+                const inputs = document.querySelectorAll(`input[data-group="${group}"]`);
+                
+                inputs.forEach(input => {
+                    // Só marca/desmarca se estiver visível (importante para modelos filtrados)
+                    // Verifica se o pai (label) está visível
+                    const wrapper = input.closest('label');
+                    if (wrapper && wrapper.offsetParent !== null) {
+                        input.checked = state;
+                    } else if (!wrapper && input.offsetParent !== null) {
+                        // Caso fallback se estrutura mudar
+                        input.checked = state;
+                    }
+                });
+                
+                if (group === 'manuf') this.filterModelsUI();
+                this.render();
+            },
+
+            // --- Nova Função: Filtragem de Interface de Modelos (Busca + Fabricante) ---
+            filterModelsUI: function() {
+                const searchVal = document.getElementById('modelSearch').value.toLowerCase();
+                const selectedManufs = Array.from(document.querySelectorAll('input[data-group="manuf"]:checked')).map(c => c.value);
+                const modelWrappers = document.querySelectorAll('.model-checkbox-wrapper');
+
+                modelWrappers.forEach(wrapper => {
+                    const modelName = wrapper.dataset.model;
+                    const modelManuf = wrapper.dataset.manuf;
+                    
+                    // Lógica 1: Filtro por Fabricante (Se nenhum selecionado, mostra todos)
+                    let showByManuf = selectedManufs.length === 0 || selectedManufs.includes(modelManuf);
+                    
+                    // Lógica 2: Filtro por Texto de Busca
+                    let showBySearch = modelName.includes(searchVal);
+
+                    if (showByManuf && showBySearch) {
+                        wrapper.classList.remove('hidden-item');
+                    } else {
+                        wrapper.classList.add('hidden-item');
+                        // Opcional: Se ocultar, pode querer desmarcar para não filtrar 'fantasma'.
+                        // Por padrão de UX de filtros multi-faceted, manter selecionado oculto é confuso.
+                        // Aqui mantemos o comportamento simples: apenas oculta visualmente.
+                    }
+                });
             },
 
             getFilteredData: function() {
@@ -752,12 +855,11 @@
                     return true;
                 };
 
-                // Filtra Sales (Agora aplica filtro de estoque via coluna direta ou mapa)
+                // Filtra Sales
                 const filteredSales = this.data.sales.filter(row => {
                     if (!passCommon(row)) return false;
                     
                     if (this.filters.stockStatus !== 'all') {
-                        // Prioriza a coluna da própria linha, depois o mapa
                         let status = (row["Ativo"] || this.mapping.productToStock[row["Produto"]] || "").toString().trim().toLowerCase();
                         if (status !== this.filters.stockStatus.toLowerCase()) return false;
                     }
@@ -785,7 +887,6 @@
                    if (!passCommon(row)) return false; 
                    
                    if (this.filters.stockStatus !== 'all') {
-                       // MTTF não tem coluna Ativo, depende puramente do Mapa
                        let status = (this.mapping.productToStock[row["Produto"]] || "").toString().trim().toLowerCase();
                        if (status !== this.filters.stockStatus.toLowerCase()) return false;
                    }
@@ -813,10 +914,20 @@
                 document.getElementById('kpi-states').innerText = uniqueStates;
 
                 const modelStats = {};
-                data.sales.forEach(s => { modelStats[s["Produto"]] = { sales: (s["Total Vendido"] || 0), rmas: 0 }; });
+                // SOMA VENDAS
+                data.sales.forEach(s => { 
+                    if (!modelStats[s["Produto"]]) {
+                        modelStats[s["Produto"]] = { sales: 0, rmas: 0 };
+                    }
+                    modelStats[s["Produto"]].sales += (parseFloat(s["Total Vendido"]) || 0);
+                });
+                
                 data.rmas.forEach(r => {
-                    if (modelStats[r["Produto"]]) modelStats[r["Produto"]].rmas++;
-                    else if (!data.sales.length) modelStats[r["Produto"]] = { sales: 1, rmas: 1 };
+                    if (modelStats[r["Produto"]]) {
+                        modelStats[r["Produto"]].rmas++;
+                    } else if (!data.sales.length) {
+                        modelStats[r["Produto"]] = { sales: 1, rmas: 1 };
+                    }
                 });
 
                 const chartDataRate = Object.entries(modelStats)
@@ -838,7 +949,6 @@
                 });
                 const chartDataDefects = Object.entries(defectsCount)
                     .map(([d, count]) => {
-                        // Calcula a porcentagem em relação ao total de RMAs
                         const pct = totalRmas > 0 ? ((count / totalRmas) * 100).toFixed(2) : "0.00";
                         return { 
                             label: d, 
@@ -886,7 +996,6 @@
                     indicator.style.display = 'none';
                 }
 
-                // Passando modelStats também para calcular volume absoluto
                 this.generateInsights(chartDataRate, chartDataDefects, chartDataGeo, chartDataMttf, modelStats);
             },
 
@@ -905,7 +1014,6 @@
                     row.className = 'bar-row';
                     row.onclick = () => this.applyCrossFilter(filterType, item.raw);
                     
-                    // Novo Layout Empilhado
                     row.innerHTML = `
                         <div class="bar-header">
                             <div class="bar-label" title="${item.label}">${item.label}</div>
@@ -928,7 +1036,6 @@
                     return;
                 }
 
-                // 1. Maior Volume de RMA (Quantidade)
                 let maxRmaModel = null;
                 let maxRmaCount = -1;
                 for (const [model, stats] of Object.entries(modelStats)) {
@@ -948,7 +1055,6 @@
                         </div>`;
                 }
 
-                // 2. Maior Taxa de Falhas (Porcentagem + Qtd Vendida)
                 if (rateData.length > 0 && rateData[0].value > 0) {
                     const modelName = rateData[0].label;
                     const stats = modelStats[modelName] || { sales: 0 };
@@ -962,7 +1068,6 @@
                         </div>`;
                 }
 
-                // 3. Defeito Mais Comum (Quantidade)
                 if (defectData.length > 0) {
                     container.innerHTML += `
                         <div class="insight-item warning" onclick="app.applyCrossFilter('defect', '${defectData[0].label}')" title="Clique para filtrar por este defeito">
@@ -973,7 +1078,6 @@
                         </div>`;
                 }
 
-                // 4. Estado com Maior Volume (Quantidade)
                 if (geoData.length > 0) {
                     container.innerHTML += `
                         <div class="insight-item info" onclick="app.applyCrossFilter('state', '${geoData[0].label}')" title="Clique para filtrar por este estado">
@@ -984,7 +1088,6 @@
                         </div>`;
                 }
                 
-                // 5. Menor Vida Útil (MTTF + Qtd Garantia)
                 if (mttfData.length > 0) {
                     const worstModel = mttfData[0];
                     const rmaCount = modelStats[worstModel.raw] ? modelStats[worstModel.raw].rmas : 0;
@@ -1012,13 +1115,14 @@
             resetFilters: function() {
                 document.getElementById('dateStart').value = '';
                 document.getElementById('dateEnd').value = '';
+                document.getElementById('modelSearch').value = ''; // Limpa busca
                 
-                // Reset stock filter
                 this.filters.stockStatus = 'all';
                 const stockRadios = document.getElementsByName('stockFilter');
                 if(stockRadios.length) stockRadios[0].checked = true;
 
                 document.querySelectorAll('.filter-checkbox').forEach(cb => cb.checked = false);
+                this.filterModelsUI(); // Reseta visibilidade dos modelos
                 this.filters.crossFilter = null;
                 this.render();
             },
@@ -1026,12 +1130,10 @@
             toggleLoader: function(show) { document.getElementById('loader').style.display = show ? 'flex' : 'none'; },
             
             downloadTemplates: function() {
-                // ATUALIZADO: Incluindo coluna "Ativo" também em Vendas
                 const dataSales = [
-                    { "Produto": "Modelo A-1000", "Fabricante": "SolarTech", "Quant. de SAC": 5, "Total Vendido": 200, "Ativo": "Sim" },
-                    { "Produto": "Modelo B-2000", "Fabricante": "EcoPower", "Quant. de SAC": 12, "Total Vendido": 500, "Ativo": "Não" }
+                    { "Produto": "Modelo A-1000", "Fabricante": "SolarTech", "Quant. de SAC": 5, "Total Vendido": 200, "Estado": "SP", "Ativo": "Sim" },
+                    { "Produto": "Modelo B-2000", "Fabricante": "EcoPower", "Quant. de SAC": 12, "Total Vendido": 500, "Estado": "MG", "Ativo": "Não" }
                 ];
-                // ATUALIZADO: Incluindo coluna "Ativo"
                 const dataRMA = [
                     { "Produto": "Modelo A-1000", "Fabricante": "SolarTech", "Problemática": "Falha Display", "Estado": "SP", "Data de Criação": new Date("2023-01-15"), "Ativo": "Sim" },
                     { "Produto": "Modelo B-2000", "Fabricante": "EcoPower", "Problemática": "Erro Grid", "Estado": "MG", "Data de Criação": new Date("2023-02-20"), "Ativo": "Não" }
