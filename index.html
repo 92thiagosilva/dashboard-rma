@@ -165,6 +165,7 @@
         }
         .checkbox-item:hover { background: rgba(255,255,255,0.05); color: white; }
         .checkbox-item input { margin-right: 10px; accent-color: var(--primary); }
+        .checkbox-item input[type="radio"] { accent-color: var(--primary); }
 
         /* Buttons */
         .btn-ghost {
@@ -475,6 +476,25 @@
                 <input type="date" id="dateStart" onchange="app.render()">
                 <input type="date" id="dateEnd" onchange="app.render()">
             </div>
+            
+            <!-- Novo Filtro de Estoque -->
+            <div class="control-group">
+                <h3>Status de Estoque</h3>
+                <div style="display: flex; gap: 8px; flex-direction: column;">
+                    <label class="checkbox-item">
+                        <input type="radio" name="stockFilter" value="all" checked onchange="app.setStockFilter('all')"> 
+                        Todos
+                    </label>
+                    <label class="checkbox-item">
+                        <input type="radio" name="stockFilter" value="Sim" onchange="app.setStockFilter('Sim')"> 
+                        Em Estoque (Sim)
+                    </label>
+                    <label class="checkbox-item">
+                        <input type="radio" name="stockFilter" value="Não" onchange="app.setStockFilter('Não')"> 
+                        Fora de Estoque (Não)
+                    </label>
+                </div>
+            </div>
 
             <div class="control-group">
                 <h3>Fabricante</h3>
@@ -587,8 +607,8 @@
     <script>
         const app = {
             data: { sales: [], rmas: [], mttf: [] },
-            mapping: { productToManuf: {} },
-            filters: { manufacturers: new Set(), models: new Set(), dateStart: null, dateEnd: null, crossFilter: null },
+            mapping: { productToManuf: {}, productToStock: {} }, // ADICIONADO: productToStock
+            filters: { manufacturers: new Set(), models: new Set(), dateStart: null, dateEnd: null, crossFilter: null, stockStatus: 'all' },
 
             init: function() {
                 document.getElementById('fileInput').addEventListener('change', this.handleFileUpload.bind(this));
@@ -634,6 +654,7 @@
             processFiles: function(results) {
                 this.data = { sales: [], rmas: [], mttf: [] };
                 this.mapping.productToManuf = {};
+                this.mapping.productToStock = {}; // Reiniciar mapa
 
                 results.forEach(res => {
                     const keys = Object.keys(res.data[0] || {}).map(k => k.trim());
@@ -654,9 +675,18 @@
                     return;
                 }
 
-                const allProducts = [...this.data.sales, ...this.data.rmas];
-                allProducts.forEach(row => {
-                    if (row["Produto"] && row["Fabricante"]) this.mapping.productToManuf[row["Produto"]] = row["Fabricante"];
+                // Cruzar informações e preencher mapa de estoque
+                // AGORA INCLUINDO SALES NO LOOP DE ESTOQUE
+                const allRows = [...this.data.sales, ...this.data.rmas];
+                allRows.forEach(row => {
+                    if (row["Produto"]) {
+                        if (row["Fabricante"]) this.mapping.productToManuf[row["Produto"]] = row["Fabricante"];
+                        
+                        // Captura status do estoque se disponível
+                        if (row["Ativo"]) {
+                            this.mapping.productToStock[row["Produto"]] = row["Ativo"].toString().trim();
+                        }
+                    }
                 });
 
                 this.data.mttf.forEach(row => {
@@ -709,6 +739,7 @@
                 const selectedManuf = Array.from(document.querySelectorAll('input[data-group="manuf"]:checked')).map(c => c.value);
                 const selectedModels = Array.from(document.querySelectorAll('input[data-group="model"]:checked')).map(c => c.value);
 
+                // Helper de checagem comum
                 const passCommon = (row) => {
                     if (selectedManuf.length > 0 && !selectedManuf.includes(row["Fabricante"])) return false;
                     if (selectedModels.length > 0 && !selectedModels.includes(row["Produto"])) return false;
@@ -721,22 +752,52 @@
                     return true;
                 };
 
+                // Filtra Sales (Agora aplica filtro de estoque via coluna direta ou mapa)
                 const filteredSales = this.data.sales.filter(row => {
-                    if (selectedManuf.length > 0 && !selectedManuf.includes(row["Fabricante"])) return false;
-                    if (selectedModels.length > 0 && !selectedModels.includes(row["Produto"])) return false;
-                    if (this.filters.crossFilter && this.filters.crossFilter.type === 'model' && row["Produto"] !== this.filters.crossFilter.value) return false;
+                    if (!passCommon(row)) return false;
+                    
+                    if (this.filters.stockStatus !== 'all') {
+                        // Prioriza a coluna da própria linha, depois o mapa
+                        let status = (row["Ativo"] || this.mapping.productToStock[row["Produto"]] || "").toString().trim().toLowerCase();
+                        if (status !== this.filters.stockStatus.toLowerCase()) return false;
+                    }
                     return true;
                 });
 
+                // Filtra RMAs
                 const filteredRmas = this.data.rmas.filter(row => {
+                    // 1. Data
                     if (dateStart && row["Data de Criação"] < dateStart) return false;
                     if (dateEnd && row["Data de Criação"] > dateEnd) return false;
+                    
+                    // 2. Filtro de Estoque
+                    if (this.filters.stockStatus !== 'all') {
+                        let status = (row["Ativo"] || this.mapping.productToStock[row["Produto"]] || "").toString().trim().toLowerCase();
+                        if (status !== this.filters.stockStatus.toLowerCase()) return false;
+                    }
+                    
+                    // 3. Comuns
                     return passCommon(row);
                 });
 
-                const filteredMttf = this.data.mttf.filter(passCommon);
+                // Filtra MTTF
+                const filteredMttf = this.data.mttf.filter(row => {
+                   if (!passCommon(row)) return false; 
+                   
+                   if (this.filters.stockStatus !== 'all') {
+                       // MTTF não tem coluna Ativo, depende puramente do Mapa
+                       let status = (this.mapping.productToStock[row["Produto"]] || "").toString().trim().toLowerCase();
+                       if (status !== this.filters.stockStatus.toLowerCase()) return false;
+                   }
+                   return true;
+                });
 
                 return { sales: filteredSales, rmas: filteredRmas, mttf: filteredMttf };
+            },
+
+            setStockFilter: function(val) {
+                this.filters.stockStatus = val;
+                this.render();
             },
 
             render: function() {
@@ -776,12 +837,16 @@
                     defectsCount[defect] = (defectsCount[defect] || 0) + 1;
                 });
                 const chartDataDefects = Object.entries(defectsCount)
-                    .map(([d, count]) => ({ 
-                        label: d, 
-                        value: count, 
-                        displayHtml: `<span class="value-highlight">${count}</span>`,
-                        raw: d 
-                    }))
+                    .map(([d, count]) => {
+                        // Calcula a porcentagem em relação ao total de RMAs
+                        const pct = totalRmas > 0 ? ((count / totalRmas) * 100).toFixed(2) : "0.00";
+                        return { 
+                            label: d, 
+                            value: count, 
+                            displayHtml: `<span class="value-highlight">${count}</span> <span style="font-size:0.8em; color:var(--text-muted); font-weight:400;">(${pct}%)</span>`,
+                            raw: d 
+                        };
+                    })
                     .sort((a, b) => b.value - a.value).slice(0, 10); 
 
                 const stateCount = {};
@@ -947,6 +1012,12 @@
             resetFilters: function() {
                 document.getElementById('dateStart').value = '';
                 document.getElementById('dateEnd').value = '';
+                
+                // Reset stock filter
+                this.filters.stockStatus = 'all';
+                const stockRadios = document.getElementsByName('stockFilter');
+                if(stockRadios.length) stockRadios[0].checked = true;
+
                 document.querySelectorAll('.filter-checkbox').forEach(cb => cb.checked = false);
                 this.filters.crossFilter = null;
                 this.render();
@@ -955,13 +1026,15 @@
             toggleLoader: function(show) { document.getElementById('loader').style.display = show ? 'flex' : 'none'; },
             
             downloadTemplates: function() {
+                // ATUALIZADO: Incluindo coluna "Ativo" também em Vendas
                 const dataSales = [
-                    { "Produto": "Modelo A-1000", "Fabricante": "SolarTech", "Quant. de SAC": 5, "Total Vendido": 200 },
-                    { "Produto": "Modelo B-2000", "Fabricante": "EcoPower", "Quant. de SAC": 12, "Total Vendido": 500 }
+                    { "Produto": "Modelo A-1000", "Fabricante": "SolarTech", "Quant. de SAC": 5, "Total Vendido": 200, "Ativo": "Sim" },
+                    { "Produto": "Modelo B-2000", "Fabricante": "EcoPower", "Quant. de SAC": 12, "Total Vendido": 500, "Ativo": "Não" }
                 ];
+                // ATUALIZADO: Incluindo coluna "Ativo"
                 const dataRMA = [
-                    { "Produto": "Modelo A-1000", "Fabricante": "SolarTech", "Problemática": "Falha Display", "Estado": "SP", "Data de Criação": new Date("2023-01-15") },
-                    { "Produto": "Modelo B-2000", "Fabricante": "EcoPower", "Problemática": "Erro Grid", "Estado": "MG", "Data de Criação": new Date("2023-02-20") }
+                    { "Produto": "Modelo A-1000", "Fabricante": "SolarTech", "Problemática": "Falha Display", "Estado": "SP", "Data de Criação": new Date("2023-01-15"), "Ativo": "Sim" },
+                    { "Produto": "Modelo B-2000", "Fabricante": "EcoPower", "Problemática": "Erro Grid", "Estado": "MG", "Data de Criação": new Date("2023-02-20"), "Ativo": "Não" }
                 ];
                 const dataMTTF = [
                     { "Produto": "Modelo A-1000", "Média de MTTF": 450 },
