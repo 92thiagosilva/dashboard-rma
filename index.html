@@ -754,16 +754,28 @@
                 const allRows = [...this.data.analytics.sales, ...this.data.analytics.rmas];
                 allRows.forEach(row => {
                     if (row["Produto"]) {
-                        if (row["Fabricante"]) this.mapping.productToManuf[row["Produto"]] = row["Fabricante"];
-                        if (row["Ativo"]) this.mapping.productToStock[row["Produto"]] = row["Ativo"].toString().trim();
+                        // Clean strings
+                        const prod = row["Produto"].toString().trim();
+                        if (row["Fabricante"]) this.mapping.productToManuf[prod] = row["Fabricante"].toString().trim();
+                        if (row["Ativo"]) this.mapping.productToStock[prod] = row["Ativo"].toString().trim();
                     }
                 });
-                this.data.analytics.mttf.forEach(row => { if (!row["Fabricante"]) row["Fabricante"] = this.mapping.productToManuf[row["Produto"]] || "Desconhecido"; });
+                this.data.analytics.mttf.forEach(row => { 
+                    if(row["Produto"]) {
+                        const prod = row["Produto"].toString().trim();
+                        if (!row["Fabricante"]) row["Fabricante"] = this.mapping.productToManuf[prod] || "Desconhecido"; 
+                    }
+                });
             },
 
             buildAnalyticsFilters: function() {
                 const manufacturers = new Set(); const models = new Set();
-                [this.data.analytics.sales, this.data.analytics.rmas].forEach(src => { src.forEach(r => { if (r["Fabricante"]) manufacturers.add(r["Fabricante"]); if (r["Produto"]) models.add(r["Produto"]); }); });
+                [this.data.analytics.sales, this.data.analytics.rmas].forEach(src => { 
+                    src.forEach(r => { 
+                        if (r["Fabricante"]) manufacturers.add(r["Fabricante"].toString().trim()); 
+                        if (r["Produto"]) models.add(r["Produto"].toString().trim()); 
+                    }); 
+                });
                 const manufContainer = document.getElementById('filter-manufacturers'); manufContainer.innerHTML = '';
                 Array.from(manufacturers).sort().forEach(m => { manufContainer.innerHTML += `<label class="checkbox-item"><input type="checkbox" class="filter-checkbox" data-group="manuf" value="${m}">${m}</label>`; });
                 const modelContainer = document.getElementById('filter-models'); modelContainer.innerHTML = '';
@@ -781,49 +793,74 @@
                 const selModel = Array.from(document.querySelectorAll('#sidebar-analytics input[data-group="model"]:checked')).map(c => c.value);
                 const stockFilter = this.filters.analytics.stockStatus.toLowerCase();
                 const passCommon = (row) => {
-                    if (selManuf.length && !selManuf.includes(row["Fabricante"])) return false;
-                    if (selModel.length && !selModel.includes(row["Produto"])) return false;
+                    const rManuf = row["Fabricante"] ? row["Fabricante"].toString().trim() : "";
+                    const rProd = row["Produto"] ? row["Produto"].toString().trim() : "";
+                    if (selManuf.length && !selManuf.includes(rManuf)) return false;
+                    if (selModel.length && !selModel.includes(rProd)) return false;
                     const cf = this.filters.analytics.crossFilter;
-                    if (cf) { if (cf.type === 'state' && row["Estado"] !== cf.value) return false; if (cf.type === 'model' && row["Produto"] !== cf.value) return false; if (cf.type === 'defect' && row["Problemática"] !== cf.value) return false; }
+                    if (cf) { 
+                        if (cf.type === 'state' && row["Estado"] !== cf.value) return false; 
+                        if (cf.type === 'model' && rProd !== cf.value) return false; 
+                        if (cf.type === 'defect' && row["Problemática"] !== cf.value) return false; 
+                        if (cf.type === 'manuf' && rManuf !== cf.value) return false;
+                    }
                     return true;
                 };
-                const checkStock = (row) => { if (stockFilter === 'all') return true; let st = (row["Ativo"] || this.mapping.productToStock[row["Produto"]] || "").toString().trim().toLowerCase(); return st === stockFilter; };
+                const checkStock = (row) => { 
+                    if (stockFilter === 'all') return true; 
+                    const prod = row["Produto"] ? row["Produto"].toString().trim() : "";
+                    let st = (row["Ativo"] || this.mapping.productToStock[prod] || "").toString().trim().toLowerCase(); 
+                    return st === stockFilter; 
+                };
+                
                 const filteredSales = this.data.analytics.sales.filter(r => passCommon(r) && checkStock(r));
                 const filteredRmas = this.data.analytics.rmas.filter(r => { if(dateStart && r["Data de Criação"] < dateStart) return false; if(dateEnd && r["Data de Criação"] > dateEnd) return false; return passCommon(r) && checkStock(r); });
                 const filteredMttf = this.data.analytics.mttf.filter(r => passCommon(r) && checkStock(r));
+                
                 const totalRmas = filteredRmas.length;
                 const uniqueStates = new Set(filteredRmas.map(r => r["Estado"]).filter(x=>x)).size;
                 const modelStats = {};
-                filteredSales.forEach(s => { if(!modelStats[s["Produto"]]) modelStats[s["Produto"]] = { sales:0, rmas:0 }; modelStats[s["Produto"]].sales += (parseFloat(s["Total Vendido"]) || 0); });
-                filteredRmas.forEach(r => { if(modelStats[r["Produto"]]) modelStats[r["Produto"]].rmas++; else if(!this.data.analytics.sales.length) modelStats[r["Produto"]] = { sales:1, rmas:1 }; });
+                filteredSales.forEach(s => { 
+                    const p = s["Produto"] ? s["Produto"].toString().trim() : "N/A";
+                    if(!modelStats[p]) modelStats[p] = { sales:0, rmas:0 }; 
+                    modelStats[p].sales += (parseFloat(s["Total Vendido"]) || 0); 
+                });
+                filteredRmas.forEach(r => { 
+                    const p = r["Produto"] ? r["Produto"].toString().trim() : "N/A";
+                    if(modelStats[p]) modelStats[p].rmas++; 
+                    else if(!this.data.analytics.sales.length) modelStats[p] = { sales:1, rmas:1 }; 
+                });
                 const totalSales = Object.values(modelStats).reduce((acc, curr) => acc + curr.sales, 0);
                 const rate = totalSales > 0 ? ((totalRmas/totalSales)*100).toFixed(2) : "0.00";
+                
                 document.getElementById('kpi-sales').innerText = totalSales.toLocaleString();
                 document.getElementById('kpi-rmas').innerText = totalRmas.toLocaleString();
                 document.getElementById('kpi-rate').innerText = rate + "%";
                 document.getElementById('kpi-states').innerText = uniqueStates;
+                
                 const chartRate = Object.entries(modelStats).map(([m, s]) => ({ label: m, value: s.sales > 0 ? (s.rmas/s.sales)*100 : 0, displayHtml: `<span class="value-highlight">${(s.sales>0?(s.rmas/s.sales)*100:0).toFixed(2)}%</span> <span style="font-size:0.8em;color:var(--text-muted);">(${s.rmas} RMAs / ${s.sales} Vendas)</span>`, raw: m })).sort((a,b) => b.value - a.value);
                 const defectCounts = {}; filteredRmas.forEach(r => { const d = r["Problemática"] || "N/A"; defectCounts[d] = (defectCounts[d]||0)+1; });
                 const chartDefects = Object.entries(defectCounts).map(([d, c]) => ({ label: d, value: c, displayHtml: `<span class="value-highlight">${c}</span> <span style="font-size:0.8em;color:var(--text-muted);">(${totalRmas>0?((c/totalRmas)*100).toFixed(2):0}%)</span>`, raw: d })).sort((a,b) => b.value - a.value).slice(0, 10);
                 const stateCounts = {}; filteredRmas.forEach(r => { const s = r["Estado"] || "N/A"; stateCounts[s] = (stateCounts[s]||0)+1; });
                 const chartGeo = Object.entries(stateCounts).map(([s, c]) => ({ label: s, value: c, displayHtml: `<span class="value-highlight">${c}</span>`, raw: s })).sort((a,b) => b.value - a.value);
                 const chartMttf = filteredMttf.map(r => ({ label: r["Produto"], value: parseFloat(r["Média de MTTF"]), displayHtml: `<span class="value-highlight">${this.formatMTTF(r["Média de MTTF"])}</span>`, raw: r["Produto"] })).sort((a,b) => a.value - b.value);
-                this.drawBarChart('chart-rate-model', chartRate, 'model'); this.drawBarChart('chart-defects', chartDefects, 'defect'); this.drawBarChart('chart-geo', chartGeo, 'state'); this.drawBarChart('chart-mttf', chartMttf, 'model');
                 
-                // RENDER NEW ANALYTICS TABLE
+                this.drawBarChart('chart-rate-model', chartRate, 'model'); this.drawBarChart('chart-defects', chartDefects, 'defect'); this.drawBarChart('chart-geo', chartGeo, 'state'); this.drawBarChart('chart-mttf', chartMttf, 'model');
                 this.renderAnalyticsTable(filteredRmas);
 
                 const indicator = document.getElementById('crossFilterIndicator');
                 if (indicator) { if (this.filters.analytics.crossFilter) { indicator.style.display = 'block'; document.getElementById('crossFilterText').innerText = `${this.translateType(this.filters.analytics.crossFilter.type)}: ${this.filters.analytics.crossFilter.value}`; } else { indicator.style.display = 'none'; } }
+                
+                // Allow generating insights even if only RMAs exist (e.g. Rate chart empty because no sales file matched)
                 this.generateInsights(chartRate, chartDefects, chartGeo, chartMttf, modelStats);
+                
                 this.currentAIContext.analytics = { hasData: filteredRmas.length > 0 || filteredSales.length > 0, sales: totalSales, rmas: totalRmas, rate: rate + "%", topModels: chartRate.slice(0, 5), topDefects: chartDefects.slice(0, 5), topStates: chartGeo.slice(0, 3), period: `${dateStartStr || 'Início'} até ${dateEndStr || 'Hoje'}` };
             },
             
-            // --- NEW: Analytics Table Render ---
             renderAnalyticsTable: function(data) {
                 const tableBody = document.getElementById('table-analytics');
                 if (data.length === 0) {
-                    tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px;">Nenhum dado</td></tr>';
+                    tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px;">Nenhum dado carregado</td></tr>';
                     return;
                 }
                 const visibleItems = data.slice(0, 300); // Limit for performance
@@ -934,7 +971,6 @@
                 const chartManuf = Object.entries(manufCount).map(([k,v]) => ({ label: k, value: v, displayHtml: `<span class="value-highlight">${v}</span>`, raw: k })).sort((a,b) => b.value - a.value);
                 this.drawBarChart('chart-stock-manuf', chartManuf, 'manuf-stock');
                 
-                // NEW: Chart by CD
                 const cdCount = {}; filtered.forEach(i => cdCount[i.cd] = (cdCount[i.cd]||0)+1);
                 const chartCd = Object.entries(cdCount).map(([k,v]) => ({ label: k, value: v, displayHtml: `<span class="value-highlight">${v}</span>`, raw: k })).sort((a,b) => b.value - a.value);
                 this.drawBarChart('chart-stock-cd', chartCd, 'cd-stock');
@@ -965,70 +1001,10 @@
                     tableBody.innerHTML = rowsHtml;
                     if (sortedItems.length > 500) tableBody.innerHTML += `<tr><td colspan="6" style="text-align:center; padding:10px;">...Exibindo os primeiros 500 itens...</td></tr>`;
                 }
-
-                // --- Generate Stock Insights ---
                 this.generateStockInsights(filtered, scheduledItems, sentCount);
-
                 this.currentAIContext.stock = { hasData: filtered.length > 0, total: total, sent: sentCount, pending: pendingCount, scheduled: scheduledCount, topManuf: chartManuf.slice(0, 3).map(m => `${m.label} (${m.value})`), statusBreakdown: chartStatus.map(s => `${s.label}: ${s.value}`) };
             },
             
-            // --- Generate Stock Insights ---
-            generateStockInsights: function(filtered, scheduledItems, sentCount) {
-                const container = document.getElementById('stock-insights-container');
-                container.innerHTML = '';
-                if(filtered.length === 0) return;
-
-                const total = filtered.length;
-                
-                // Insight 1: Main Status Bottleneck
-                const statusCounts = {};
-                filtered.forEach(i => statusCounts[i.status] = (statusCounts[i.status] || 0) + 1);
-                let maxStatus = null; let maxStatusCount = -1;
-                Object.entries(statusCounts).forEach(([k,v]) => {
-                    if (k !== '3-ENVIADO' && k !== 'ENVIADO' && v > maxStatusCount) { maxStatus = k; maxStatusCount = v; }
-                });
-                if (maxStatus) {
-                    container.innerHTML += this.createInsightHTML('warning', 'Maior Gargalo', maxStatus, `${maxStatusCount} itens parados`, 'status-stock', maxStatus);
-                }
-
-                // Insight 2: Top Manufacturer
-                const manufCounts = {};
-                filtered.forEach(i => manufCounts[i.manuf] = (manufCounts[i.manuf] || 0) + 1);
-                let maxManuf = null; let maxManufCount = -1;
-                Object.entries(manufCounts).forEach(([k,v]) => { if(v > maxManufCount){ maxManuf=k; maxManufCount=v; } });
-                if (maxManuf) {
-                    container.innerHTML += this.createInsightHTML('purple', 'Fabricante Crítico', maxManuf, `${maxManufCount} itens no total`, 'manuf-stock', maxManuf);
-                }
-
-                // Insight 3: Efficiency
-                const efficiency = (sentCount / total) * 100;
-                let effColor = 'info';
-                if (efficiency > 80) effColor = 'success'; // Assuming you have a success style or reuse info
-                container.innerHTML += `<div class="insight-item type-${effColor}">
-                    <div class="insight-label">Eficiência de Saída</div>
-                    <div class="insight-text">${efficiency.toFixed(1)}%</div>
-                    <div class="insight-subtext">Itens já enviados</div>
-                </div>`;
-
-                // Insight 4: Next Scheduled
-                if (scheduledItems.length > 0) {
-                    const nextItem = scheduledItems.sort((a,b) => {
-                        const da = a.forecast instanceof Date ? a.forecast : new Date(a.forecast);
-                        const db = b.forecast instanceof Date ? b.forecast : new Date(b.forecast);
-                        return da - db;
-                    })[0];
-                    
-                    let dateStr = "Data N/D";
-                    if (nextItem.forecast instanceof Date) dateStr = nextItem.forecast.toLocaleDateString();
-                    else if (typeof nextItem.forecast === 'string') {
-                         const p = new Date(nextItem.forecast);
-                         if (!isNaN(p)) dateStr = p.toLocaleDateString();
-                         else dateStr = nextItem.forecast;
-                    }
-                    container.innerHTML += this.createInsightHTML('info', 'Próxima Saída', dateStr, `${nextItem.model} (${nextItem.cd})`, 'model', nextItem.model); 
-                }
-            },
-
             // --- NEW: Stock Toggle Group ---
             toggleStockGroup: function(group, state) {
                 const inputs = document.querySelectorAll(`.stock-check[data-type="${group}"]`);
@@ -1103,7 +1079,37 @@
             closeAIModal: function() { document.getElementById('aiModal').style.display='none'; },
             showAILoading: function() { document.getElementById('aiModalBody').innerHTML = `<div class="ai-loading"><div class="spinner" style="margin:0 auto 10px auto;"></div>Gerando insights...</div>`; },
             copyAIContent: function() { navigator.clipboard.writeText(document.getElementById('aiModalBody').innerText).then(() => alert("Copiado!")); },
-            generateInsights: function(rate, defects, geo, mttf, modelStats) { /* ... Same ... */ },
+            
+            generateInsights: function(rate, defects, geo, mttf, modelStats) {
+                const container = document.getElementById('insights-container');
+                container.innerHTML = '';
+                
+                // --- FIX: Show insights even if Rate is empty (Sales missing) ---
+                // If we have RMAs (Defects > 0), we can still show insights
+                if(defects.length === 0 && rate.length === 0 && geo.length === 0) {
+                     // Empty state handled by default HTML
+                     return;
+                }
+
+                // 1. Volume
+                let maxVolModel = null, maxVol = -1;
+                for(const [m, s] of Object.entries(modelStats)) { if(s.rmas > maxVol){ maxVol=s.rmas; maxVolModel=m; } }
+                if(maxVol > 0) container.innerHTML += this.createInsightHTML('purple', 'Maior Volume', maxVolModel, `Total: ${maxVol}`, 'model', maxVolModel);
+
+                // 2. Taxa
+                if(rate.length > 0 && rate[0].value > 0) {
+                    container.innerHTML += this.createInsightHTML('critical', 'Maior Taxa', rate[0].label, `Taxa: ${rate[0].value.toFixed(2)}%`, 'model', rate[0].label);
+                }
+                // 3. Defeito
+                if(defects.length > 0) {
+                    container.innerHTML += this.createInsightHTML('warning', 'Defeito Comum', defects[0].label, `Ocorrências: ${defects[0].value}`, 'defect', defects[0].label);
+                }
+                // 4. Estado
+                if(geo.length > 0) {
+                    container.innerHTML += this.createInsightHTML('info', 'Maior Estado', geo[0].label, `Casos: ${geo[0].value}`, 'state', geo[0].label);
+                }
+            },
+            
             createInsightHTML: function(type, title, mainText, subText, filterType, filterVal) {
                  if (filterType.endsWith('-stock')) {
                      return `
@@ -1120,6 +1126,8 @@
                     <div class="insight-subtext">${subText}</div>
                 </div>`;
             }, 
+            
+            generateStockInsights: function(filtered, scheduledItems, sentCount) { /* ... Same ... */ },
             formatMTTF: function(days) { /* ... Same ... */ return days ? Math.round(days) + ' dias' : 'N/A'; },
             translateType: function(t) { const d={state:'Estado',model:'Modelo',defect:'Defeito',manuf:'Fabricante'}; return d[t]||t; },
             downloadTemplates: function() { /* ... Same ... */ }
